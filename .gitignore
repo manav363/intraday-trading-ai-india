@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.DS_Store
+data_cache/
+*.pkl
+.env
+backtest_*.png
