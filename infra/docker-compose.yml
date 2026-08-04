@@ -1,0 +1,71 @@
+# The stack. Only `web` publishes a port; everything else is internal.
+#
+# The lake is a bind mount, not a named volume. A named volume starts empty,
+# so the stack would come up "successfully" into a terminal honestly reporting
+# no data — technically running, useless as a demo. Binding the host directory
+# means `docker compose up` lands on whatever has actually been ingested.
+
+name: intraday-trading-ai
+
+x-lake: &lake
+  type: bind
+  source: ${INTRADAY_LAKE_DIR:-../data/lake}
+  target: /data/lake
+
+services:
+  market-data:
+    build:
+      context: ..
+      dockerfile: services/market-data/Dockerfile
+    environment:
+      MD_PROVIDER: ${MD_PROVIDER:-synthetic}
+      MD_LAKE_ROOT: /data/lake
+    volumes:
+      - <<: *lake
+    expose:
+      - '8001'
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import market_data']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  intelligence:
+    build:
+      context: ..
+      dockerfile: services/intelligence/Dockerfile
+    environment:
+      INTEL_LAKE_ROOT: /data/lake
+    volumes:
+      # Read-only. The single-writer boundary is enforced by the mount, not by
+      # a code-review comment.
+      - <<: *lake
+        read_only: true
+    expose:
+      - '8002'
+    depends_on:
+      - market-data
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      GATEWAY_LAKE_ROOT: /data/lake
+    volumes:
+      - <<: *lake
+        read_only: true
+    expose:
+      - '8010'
+    depends_on:
+      - intelligence
+
+  web:
+    build:
+      context: ../web
+    environment:
+      NUXT_PUBLIC_API_BASE: http://localhost:8010
+    ports:
+      - '3000:3000'
+    depends_on:
+      - gateway

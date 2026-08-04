@@ -67,6 +67,15 @@ class TrainingResult:
     feature_names: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
+    served_model: object | None = None
+    """The model used for live scoring, fitted on ALL data.
+
+    Its in-sample performance is meaningless and is never reported. Every number
+    on the `card` comes from the purged out-of-fold predictions instead. v1
+    conflated these: it trained a final model on everything and then let that
+    model's own predictions reach the backtest.
+    """
+
     def summary(self) -> str:
         card = self.card
         verdict = "significant" if card.is_significant else "NOT significant"
@@ -200,6 +209,13 @@ def train(
         trained_on_synthetic=_is_synthetic(bars),
     )
 
+    # The served model is fitted on everything, for live scoring only. Nothing
+    # on the card comes from it — every reported number above was produced from
+    # purged out-of-fold predictions before this line runs.
+    served = fit_learner(
+        learner, usable[features].to_numpy(), y.to_numpy(), sample_weight=weights.to_numpy()
+    ).model
+
     logger.info("panel: %s", panel_summary(panel))
     return TrainingResult(
         card=card,
@@ -209,6 +225,7 @@ def train(
         meta_labeler=meta_labeler,
         feature_names=features,
         notes=notes,
+        served_model=served,
     )
 
 

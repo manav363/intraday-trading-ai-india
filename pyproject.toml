@@ -10,9 +10,6 @@ extend-exclude = [
     ".venv",
     "data",
     "web",
-    # v1, pending deletion once the services reach parity. Linting code that is
-    # on its way out produces noise nobody acts on.
-    "enhanced_python_files",
 ]
 
 [tool.ruff.lint]

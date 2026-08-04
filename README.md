@@ -1,221 +1,164 @@
-# 🧠 Intraday Trading AI — Indian Markets
+# Intraday Trading AI — NSE
 
-![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat&logo=python&logoColor=white)
-![XGBoost](https://img.shields.io/badge/XGBoost-Ensemble-FF6600?style=flat)
-![License](https://img.shields.io/badge/license-MIT-22c55e?style=flat)
-![Markets](https://img.shields.io/badge/Market-NSE%20%7C%20NIFTY-blue?style=flat)
+Intraday signal research for Indian equities. Four services, a pooled
+cross-sectional model, and a terminal that publishes its own p-value.
 
-> A professional-grade AI-powered intraday trading intelligence system for Indian stock markets. Combines machine learning, live news sentiment, and volatility-adjusted risk management to generate rupee-based trade decisions — with full walk-forward validation to ensure honest, out-of-sample results.
+**It is a research system.** It places no orders, connects to no broker, and
+holds nothing overnight. Its product is the evidence, not the signal.
 
 ---
 
-## 🚀 Quick Start
+## What makes it different from the usual ML-trading repo
+
+Most of them report an accuracy and stop. This one is built so the
+uncomfortable numbers are the ones you see first.
+
+| | |
+|---|---|
+| **Publishes its own p-value** | The permutation result sits in the status bar on every screen. A `/model` page is a page nobody opens. |
+| **Cannot report p = 0** | With N permutations the smallest achievable p-value is `1/(N+1)`. The contract rejects anything below that floor. |
+| **Publishes when the baseline wins** | An ElasticNet is trained alongside the stack specifically to be beaten. When it isn't, that is shown. |
+| **Refuses rather than guesses** | No trained model returns **503**, never a neutral 0.5 that the narrative layer would render as a real call about a real company. |
+| **Costs are in the objective** | A round trip costs ~0.08% before slippage. A profit target below that is not a strategy. |
+
+---
+
+## Quick start
+
+No API key, no account, no cost.
 
 ```bash
-git clone https://github.com/manav363/intraday-trading-ai-india.git
-cd intraday-trading-ai-india
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python -m textblob.download_corpora
-
-# Add your NewsAPI key
-echo "NEWS_API_KEY=your_key_here" > .env
-
-# Run
-python3 enhanced_python_files/main_v2.py
+make install
 ```
+
+```bash
+.venv/bin/python scripts/dev_gateway.py
+```
+
+```bash
+npm run dev --prefix web
+```
+
+The terminal is at `http://localhost:3000`. It boots on a synthetic model —
+flagged as such in the status bar — so a cold clone lands on a working screen
+instead of an honest but useless "no data".
 
 ---
 
-## 🎯 What This System Does
+## Architecture
 
-This system acts as a **trader's decision-support assistant**, not a blind execution bot. It:
+```
+web (Nuxt 4 · Vue 3 · Three.js)
+        │ HTTP/JSON — the only public surface
+   ┌────▼──── gateway ── composition · narrative · chart payloads
+   │            │                        │
+   │      market-data              intelligence
+   │   ingest · quality gate      panel · labelling · models
+   │   adjust · store             calibration · validation
+   │            │                        │
+   │            ▼   PARQUET LAKE         │
+   │     (market-data = sole writer) ◄───┘ reads directly, mounted read-only
+   │            ▲
+   └────── worker ── scheduled append · retrain · drift
+```
 
-- Scans the NIFTY universe for live intraday opportunities
-- Engineers **72 technical features** from raw OHLCV data
-- Trains an **ensemble ML model** (XGBoost + Random Forest) with walk-forward validation
-- Integrates **live news sentiment** and event-risk detection
-- Filters out low-confidence and high-risk conditions automatically
-- Generates clear, ₹-denominated trade plans with stop-loss and take-profit levels
-- Explains every decision in plain English
+Bulk data never crosses the network. Moving a million rows of OHLCV as JSON to
+train a model is minutes of serialisation for no benefit — in production ML
+systems the feature store *is* the interface. HTTP carries control queries
+only. See [ADR 0001](docs/adr/0001-service-architecture.md).
 
 ---
 
-## 🧩 System Architecture
+## Data — free, legal, no permission
 
-```
-Market Data (yFinance · NSE)
-        ↓
-Feature Engine (72 indicators)
-        ↓
-Walk-Forward ML Training
-(XGBoost + RF Ensemble · 5-fold time-series validation)
-        ↓
-News Engine (NewsAPI + TextBlob sentiment)
-        ↓
-Decision Engine
-(Confidence filter · Volatility sizing · Risk:Reward 1:2.5)
-        ↓
-Market Scanner → Trader Console
-```
+| Tier | Source | Role |
+|---|---|---|
+| 1 | NSE bhavcopy (official) | EOD, corporate actions, symbol master, liquidity screen |
+| 2 | [OpenChart](https://github.com/marketcalls/openchart) — NSE's public charting API (MIT, no auth) | Intraday 1m/5m/15m bars |
+| 3 | Deterministic synthetic generator | Offline tests and CI, with zero network |
+
+NSE's site terms permit personal, non-commercial use, which a portfolio project
+satisfies. **No NSE data enters this repository** — not the lake, not test
+fixtures. The suite runs on generated bars precisely so the redistribution
+question never arises. `yfinance` was deleted rather than gated; see
+[ADR 0002](docs/adr/0002-data-sources.md).
+
+**The constraint that shapes everything:** the public endpoint serves a rolling
+**60–90 day** window. There is no deep backfill at any price we are paying, so
+the lake is **append-only** — the worker appends each session and history grows
+past what any single call can return.
 
 ---
 
-## 🧠 What Makes This System Different
+## The model
 
-| Feature | Why It Matters |
+| Layer | What |
 |---|---|
-| **Walk-forward validation** | Predictions are strictly out-of-sample — no look-ahead bias |
-| **72-feature engineering** | VWAP, ATR, RSI, MACD, Bollinger Bands, OBV, time encodings |
-| **Ensemble model** | XGBoost + Random Forest with soft voting |
-| **Live news integration** | Detects earnings, RBI events, M&A, fraud — avoids high-risk setups |
-| **₹-based risk control** | Volatility-adjusted position sizing, max 1% risk per trade |
-| **Confidence filtering** | System refuses to trade when model certainty is low |
-| **Data caching layer** | Avoids redundant API calls with pickle-based cache |
-| **Human-readable output** | No black-box decisions — every trade plan is explained |
+| **L0** | Pooled cross-sectional panel — per-timestamp percentile ranks, sector-neutral z-scores |
+| **L2** | Triple-barrier labels: vol-scaled, checked on high/low, confined to the session |
+| **L3** | Average-uniqueness sample weights |
+| **L4** | Technical features + microstructure estimators |
+| **L5** | Boosted trees, random forest, ElasticNet baseline — purged OOF |
+| **L7** | Meta-labelling: "given the primary said long, will *this* long be right?" |
+| **L8** | Platt / isotonic calibration on held-out scores |
+| **L9** | Half-Kelly × volatility scaling × 10% cap |
+
+Validation is purged K-fold **split by timestamp**, plus CPCV for a
+*distribution* of Sharpes, a deflated Sharpe for multiple testing, and a
+permutation test with labels shuffled within folds.
+
+### What v1 got wrong
+
+The rewrite exists because of five defects that produced plausible-looking
+numbers rather than crashes:
+
+1. **Labels were silently wrong.** `(Future_Return > 0).astype(int)` turned the
+   unknowable last rows into label `0`, and the `dropna` meant to remove them
+   was a verified no-op. Those rows trained the model, entered the
+   out-of-sample metric, and were the exact rows the live plan read.
+2. **Short calls were unreachable.** `Confidence` held P(up) while the gate was
+   `< 0.55`, so a bearish call could never pass. The system was long-only by
+   accident.
+3. **VWAP never reset**, though its own comment said it did.
+4. **One model per ticker on ~1,200 rows**, which forecloses a sub-1% effect
+   before any modelling happens.
+5. **The backtest checked stops on the close**, never the bar's high or low.
+
+Each is now a test, and most are unrepresentable in the type system.
 
 ---
 
-## 📊 Model Validation
+## Honest limitations
 
-The model uses **walk-forward cross-validation** — the same approach used by professional quant funds to prevent overfitting.
-
-Example (ICICIBANK.NS — 5 folds):
-
-| Fold | OOS Accuracy |
-|------|-------------|
-| 1    | 0.375       |
-| 2    | 0.250       |
-| 3    | 0.500       |
-| 4    | 0.875       |
-| 5    | 0.778       |
-| **Mean** | **0.556** |
-
-> OOS Accuracy: **0.554** · OOS AUC-ROC: **0.570**
-> Realistic market predictability. The system doesn't claim to beat the market — it claims to manage risk better.
+- **History is short.** 60–90 days spans one or two regimes. The model cannot
+  learn regime dependence until the lake has accumulated for months.
+- **Microstructure is estimated, not measured.** Real order-flow imbalance
+  needs the tape; real spread needs the book. These are OHLCV-derived
+  estimators, named `*_est` where the gap matters.
+- **The NSE holiday calendar is maintained by hand.** An unverified year
+  *raises* rather than assuming the market was open. Add each year from NSE's
+  circular — several holidays follow lunar calendars and cannot be guessed.
+- **No execution, no broker, no live data.**
 
 ---
 
-## 🖥 Example Output
+## Development
 
-```
-======================================================================
-📈 TRADE ANALYSIS RESULTS
-======================================================================
-Stock: ICICIBANK.NS
-----------------------------------------------------------------------
-Action........................ BUY
-Price......................... 1216.50
-Confidence.................... 0.72
-Quantity...................... 12
-Investment.................... ₹14,598.00
-Stop_Loss_Price............... ₹1,192.17
-Take_Profit_Price............. ₹1,277.33
-Expected_Profit............... ₹729.90
-Expected_Loss................. ₹291.96
-Risk_Reward................... 2.50
-RSI........................... 44.2
-MACD_Signal................... Bullish
-Volatility.................... 1.84%
-
-======================================================================
-📰 NEWS ANALYSIS
-======================================================================
-✅ NORMAL: No major event risk detected.
-Market conditions are considered normal for intraday trading.
+```bash
+make test
 ```
 
----
-
-## 🔍 Market Scanner
-
-Scans multiple NIFTY stocks simultaneously and ranks by confidence:
-
-```
-Rank   Symbol          Action   Confidence   R:R
-----------------------------------------------------------------------
-1      RELIANCE.NS     BUY      0.79         2.50
-2      HDFCBANK.NS     BUY      0.73         2.50
-3      TCS.NS          BUY      0.67         2.50
+```bash
+make lint && make imports
 ```
 
----
-
-## 📂 Project Structure
-
-```
-intraday_trading_ai_india/
-│
-├── enhanced_python_files/
-│   ├── main_v2.py            # Trading console (3 modes)
-│   ├── data_engine_v2.py     # NSE data fetcher + caching
-│   ├── feature_engine_v2.py  # 72-feature engineering pipeline
-│   ├── model_engine_v2.py    # Walk-forward ensemble training
-│   ├── news_engine_v2.py     # Live news + sentiment analysis
-│   ├── decision_engine_v2.py # Trade plan + position sizing
-│   ├── scanner_v2.py         # Multi-stock opportunity scanner
-│   └── backtester.py         # Backtesting framework
-│
-├── requirements.txt
-├── requirements_enhanced.txt
-├── .env.example
-└── README.md
-```
+`make imports` asserts every service imports standalone — a shared virtualenv
+makes every service's dependency list look correct right up until the container
+starts.
 
 ---
 
-## ⚙️ Modes
+## Licence & disclaimer
 
-```
-Choose mode:
-1. Quick Trade Analysis   →  Single stock deep analysis
-2. Market Scanner         →  Scan full NIFTY universe
-3. Backtest Strategy      →  Historical performance analysis
-```
-
----
-
-## 🛠 Tech Stack
-
-| Category | Tools |
-|---|---|
-| ML | XGBoost, Scikit-learn (Random Forest, VotingClassifier) |
-| Data | yFinance, Pandas, NumPy |
-| NLP | TextBlob, NewsAPI |
-| Visualization | Matplotlib, Seaborn |
-| Config | python-dotenv |
-
----
-
-## 📌 Known Limitations
-
-- Uses daily/intraday OHLCV only — no order book or tick data
-- 5-minute bars are inherently noisy; 15m bars recommended for production use
-- News sentiment from NewsAPI may not cover all NSE-relevant sources
-- No live broker integration (paper trading / research only)
-
-These are intentional research simplifications, not oversights.
-
----
-
-## 🔮 Roadmap
-
-- [ ] Switch to 15-minute bars for cleaner signals
-- [ ] Add regime-aware intraday trading (integrating market_regime project)
-- [ ] Zerodha Kite API integration for paper trading
-- [ ] Telegram alerts for scanner opportunities
-- [ ] Web dashboard (FastAPI + React)
-
----
-
-## ⚠️ Disclaimer
-
-This project is for **educational and research purposes only.**
-It does not constitute financial advice. Always use proper risk management and personal judgment when trading.
-
----
-
-## 👤 Author
-
-**Manav Garg**
-Quantitative Research · AI Systems · Indian Markets
+MIT. For research and education only — not investment advice. Signals are
+generated from public NSE data for personal, non-commercial use.
