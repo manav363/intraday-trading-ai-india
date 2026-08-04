@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 
 import pytest
 from intraday_contracts import IST, BarSource, Interval
@@ -230,7 +231,7 @@ def test_price_path_is_continuous_across_sessions() -> None:
     assert len(days) > 20
 
     gaps = []
-    for previous, current in zip(days, days[1:], strict=False):
+    for previous, current in itertools.pairwise(days):
         prev_close = by_day[previous][-1].close
         next_open = by_day[current][0].open
         gaps.append(abs(next_open / prev_close - 1.0))

@@ -29,9 +29,18 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger("dev")
 
 SYMBOLS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
-    "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "LT",
-    "KOTAKBANK", "AXISBANK",
+    "RELIANCE",
+    "TCS",
+    "HDFCBANK",
+    "ICICIBANK",
+    "INFY",
+    "HINDUNILVR",
+    "ITC",
+    "SBIN",
+    "BHARTIARTL",
+    "LT",
+    "KOTAKBANK",
+    "AXISBANK",
 ]
 
 

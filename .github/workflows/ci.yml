@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "packages/contracts[dev]"
+          pip install -e "services/market-data[dev]"
+          pip install -e "services/intelligence[dev]"
+          pip install -e "services/gateway[dev]"
+          pip install -e "services/worker[dev]"
+          pip install ruff
+
+      # Three lines that catch the entire undeclared-dependency class. A shared
+      # virtualenv makes every service's dependency list look correct right up
+      # until the container starts and raises ModuleNotFoundError at import.
+      - name: Every service imports
+        run: |
+          for m in intraday_contracts market_data intelligence gateway worker; do
+            python -c "import $m" && echo "ok   $m" || { echo "FAIL $m"; exit 1; }
+          done
+
+      - name: Lint
+        run: ruff check . && ruff format --check .
+
+      - name: Tests
+        run: pytest -m "not network"
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npx nuxt build
