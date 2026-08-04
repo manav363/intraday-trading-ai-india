@@ -1,10 +1,45 @@
+# Build artefacts — kept global, never path-scoped.
+# A rule like `web/node_modules/` silently matches nothing the day `web/` is
+# renamed, and the next `git add -A` stages several thousand dependency files.
+node_modules/
+dist/
+.output/
+.nuxt/
+.nitro/
+*.tsbuildinfo
+
+# Python
 venv/
+.venv/
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# The lake. Bulk market data is never committed — it is re-ingestable, it is
+# large, and redistribution is exactly what NSE's data policy restricts.
+# Small replay fixtures under services/*/tests/fixtures/ are the deliberate
+# exception and are force-added.
+data/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor / tooling session state
 .DS_Store
+.idea/
+.vscode/
+.claude-flow/
+.claude/settings.local.json
+
+# Legacy v1 artefacts
 data_cache/
 *.pkl
-.env
 backtest_*.png

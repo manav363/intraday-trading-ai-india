@@ -1,0 +1,37 @@
+# Workspace-level tool configuration only. Each service ships its own
+# pyproject with its own dependencies — a shared dependency list is how a
+# service ends up importing something it never declared, which works locally in
+# a shared venv and dies at container start.
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    ".venv",
+    "data",
+    "web",
+    # v1, pending deletion once the services reach parity. Linting code that is
+    # on its way out produces noise nobody acts on.
+    "enhanced_python_files",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "B008",   # FastAPI Depends() in defaults is the documented idiom
+    "RUF012", # mutable class attrs are fine on pydantic models
+]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers"
+testpaths = ["packages", "services"]
+markers = [
+    "slow: takes more than a second (model training, CPCV)",
+    "network: requires live network access; excluded from CI",
+]
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+exclude = ["\\.venv", "data", "web"]
