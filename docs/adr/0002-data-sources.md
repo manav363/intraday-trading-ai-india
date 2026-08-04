@@ -26,7 +26,7 @@ Three tiers, none of which require a key, an account, or money.
 |---|---|---|
 | 1 | **NSE bhavcopy** — official published file | EOD, point-in-time universe, corporate actions, adjustment factors |
 | 2 | **NSE public charting endpoint** via [OpenChart](https://github.com/marketcalls/openchart) (MIT, no auth) | Intraday 1m/5m/15m bars |
-| 3 | **Committed replay fixtures** | A small frozen slice so a cold clone and CI run with no network |
+| 3 | **Deterministic synthetic generator** | Seeded, session-aware bars so a cold clone and CI run with no network |
 
 `yfinance` and `data_engine_v2.py` are **deleted**, not gated.
 
@@ -44,7 +44,14 @@ licensed feed product. It does not govern reading public web endpoints.
 
 Guardrails that keep it that way, enforced in code and config:
 
-- Bulk data is **never committed**. `data/` is gitignored.
+- **No NSE data enters git at all** — not the lake, not test fixtures. `data/`
+  is gitignored, and the test suite runs on a seeded synthetic generator rather
+  than a committed slice of real bars. The original plan was to commit a small
+  frozen slice as replay fixtures; that was dropped precisely because "a small
+  amount of redistribution" is still redistribution, and a synthetic generator
+  costs nothing and makes the question disappear.
+- The `replay` provider therefore reads whatever the operator has already
+  ingested **locally**, which is never committed.
 - Nothing is redistributed. The lake is local.
 - No commercial use, no paid product, no resale.
 

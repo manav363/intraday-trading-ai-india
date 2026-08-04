@@ -22,6 +22,11 @@ ignore = [
     "RUF012", # mutable class attrs are fine on pydantic models
 ]
 
+# Typographic characters used deliberately in prose docstrings. RUF002 is
+# guarding against homoglyph confusion in identifiers, which is not what an
+# en dash in a sentence is.
+allowed-confusables = ["–", "—", "×", "≈", "σ", "’"]
+
 [tool.pytest.ini_options]
 addopts = "-q --strict-markers"
 testpaths = ["packages", "services"]

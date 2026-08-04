@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "market-data"
+version = "2.0.0"
+description = "Ingest, quality gate, and the parquet lake. Single writer."
+requires-python = ">=3.11"
+
+# Every dependency this service imports is listed here, including ones that
+# happen to be present in a shared dev venv. A shared virtualenv makes every
+# service's dependency list look correct right up until the container starts.
+dependencies = [
+    "intraday-contracts",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "pandas>=2.2",
+    "pyarrow>=16.0",
+    "numpy>=1.26",
+    "httpx>=0.27",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+# openchart is optional: the service runs on synthetic or replay without it.
+# Selecting MD_PROVIDER=nse_charting without it installed raises at boot.
+live = ["openchart>=0.2"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+# [project.scripts] is added in the phase that lands the lake writer. An entry
+# point naming a module that does not exist installs cleanly and dies on first
+# invocation.
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/market_data"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
