@@ -39,6 +39,31 @@ jobs:
       - name: Tests
         run: pytest -m "not network"
 
+      # Any number a human types into a README drifts from reality, and passing
+      # tests do not catch it because tests assert code behaviour, not
+      # documentation truth. The README advertises a test count, so the build
+      # fails when that count is wrong.
+      - name: README test count is accurate
+        run: |
+          # `-p no:cacheprovider` and an explicit `-v` override the repo's
+          # `addopts = -q`, which prints per-file counts instead of the summary
+          # line this parses.
+          ACTUAL=$(pytest -m "not network" --collect-only -v 2>&1 \
+                   | grep -oE '[0-9]+ tests? collected' | grep -oE '^[0-9]+')
+          # Match `tests-<n>` only. Matching the whole `tests-260%20passing`
+          # and then grepping for digits also captures the 20 from `%20`.
+          CLAIMED=$(grep -oE 'tests-[0-9]+' README.md | grep -oE '[0-9]+')
+          echo "README claims $CLAIMED, suite collects $ACTUAL"
+          if [ -z "$ACTUAL" ]; then
+            echo "::error::could not parse a collected count — this guard is broken, fix it"
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$CLAIMED" ]; then
+            echo "::error::README badge says $CLAIMED tests but the suite has $ACTUAL."
+            echo "Update the badge in README.md."
+            exit 1
+          fi
+
   web:
     runs-on: ubuntu-latest
     defaults:

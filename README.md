@@ -1,164 +1,269 @@
+<div align="center">
+
 # Intraday Trading AI — NSE
 
-Intraday signal research for Indian equities. Four services, a pooled
-cross-sectional model, and a terminal that publishes its own p-value.
+**Intraday signal research for Indian equities, built to report its own uncertainty.**
 
-**It is a research system.** It places no orders, connects to no broker, and
-holds nothing overnight. Its product is the evidence, not the signal.
+[![CI](https://github.com/manav363/intraday-trading-ai-india/actions/workflows/ci.yml/badge.svg)](https://github.com/manav363/intraday-trading-ai-india/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Nuxt 4](https://img.shields.io/badge/Nuxt-4-00DC82?logo=nuxt&logoColor=white)](https://nuxt.com/)
+[![Tests](https://img.shields.io/badge/tests-260%20passing-22c55e)](#testing)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+</div>
 
 ---
 
-## What makes it different from the usual ML-trading repo
+## Overview
 
-Most of them report an accuracy and stop. This one is built so the
-uncomfortable numbers are the ones you see first.
+A four-service research platform that generates intraday directional signals for
+NSE equities and publishes the statistical evidence for — or against — those
+signals alongside them.
 
-| | |
+It is a **research system**: it places no orders, connects to no broker, and
+holds no position overnight. The deliverable is the evidence, not the trade.
+
+The design goal is narrow and unusual: make the *unflattering* numbers the ones a
+reader sees first. A permutation p-value sits in the interface on every screen; a
+linear baseline is trained specifically to be beaten, and the comparison is
+published whichever way it goes.
+
+---
+
+## Contents
+
+- [Design principles](#design-principles)
+- [Architecture](#architecture)
+- [Data sources](#data-sources)
+- [Modelling pipeline](#modelling-pipeline)
+- [Validation](#validation)
+- [Getting started](#getting-started)
+- [Project layout](#project-layout)
+- [Testing](#testing)
+- [Known limitations](#known-limitations)
+- [License](#license)
+
+---
+
+## Design principles
+
+| Principle | Implementation |
 |---|---|
-| **Publishes its own p-value** | The permutation result sits in the status bar on every screen. A `/model` page is a page nobody opens. |
-| **Cannot report p = 0** | With N permutations the smallest achievable p-value is `1/(N+1)`. The contract rejects anything below that floor. |
-| **Publishes when the baseline wins** | An ElasticNet is trained alongside the stack specifically to be beaten. When it isn't, that is shown. |
-| **Refuses rather than guesses** | No trained model returns **503**, never a neutral 0.5 that the narrative layer would render as a real call about a real company. |
-| **Costs are in the objective** | A round trip costs ~0.08% before slippage. A profit target below that is not a strategy. |
-
----
-
-## Quick start
-
-No API key, no account, no cost.
-
-```bash
-make install
-```
-
-```bash
-.venv/bin/python scripts/dev_gateway.py
-```
-
-```bash
-npm run dev --prefix web
-```
-
-The terminal is at `http://localhost:3000`. It boots on a synthetic model —
-flagged as such in the status bar — so a cold clone lands on a working screen
-instead of an honest but useless "no data".
+| **Report significance, not just accuracy** | The permutation p-value and its verdict render in the status bar on every screen, not on a separate page. |
+| **Never claim impossible precision** | With *N* permutations the minimum achievable p-value is `1/(N+1)`. The `ModelCard` contract rejects any value below that floor, so `p = 0` cannot be reported. |
+| **Publish the baseline comparison** | An ElasticNet is trained alongside the ensemble expressly to be beaten. When it wins, that result is shown. |
+| **Refuse rather than guess** | With no trained model, prediction endpoints return `503` — never a neutral `0.5`, which the narrative layer would render as a genuine call about a real company. |
+| **Costs enter the objective** | A round trip costs approximately 0.08% before slippage. Barrier widths are chosen against that floor rather than having costs subtracted afterwards. |
+| **Distinguish absent from zero** | A missing value renders as an em-dash. Loading, empty, and failed are three separate UI states. |
 
 ---
 
 ## Architecture
 
 ```
-web (Nuxt 4 · Vue 3 · Three.js)
-        │ HTTP/JSON — the only public surface
-   ┌────▼──── gateway ── composition · narrative · chart payloads
-   │            │                        │
-   │      market-data              intelligence
-   │   ingest · quality gate      panel · labelling · models
-   │   adjust · store             calibration · validation
-   │            │                        │
-   │            ▼   PARQUET LAKE         │
-   │     (market-data = sole writer) ◄───┘ reads directly, mounted read-only
-   │            ▲
-   └────── worker ── scheduled append · retrain · drift
+                    web  ·  Nuxt 4 · Vue 3 · Three.js
+                     │
+                     │  HTTP/JSON — the only public surface
+                     ▼
+              ┌── gateway ──┐   composition · narrative · chart payloads
+              │             │
+     ┌────────▼───┐   ┌─────▼──────────┐
+     │ market-data│   │  intelligence  │
+     │ ingest     │   │  panel         │
+     │ quality    │   │  labelling     │
+     │ adjust     │   │  models        │
+     │ store      │   │  validation    │
+     └──────┬─────┘   └─────┬──────────┘
+            │ writes        │ reads (read-only mount)
+            ▼               │
+        ┌───────────────────▼───┐
+        │     PARQUET LAKE      │   market-data is the sole writer
+        └───────────┬───────────┘
+                    ▲
+                worker  ·  scheduled append · retrain · drift
 ```
 
-Bulk data never crosses the network. Moving a million rows of OHLCV as JSON to
-train a model is minutes of serialisation for no benefit — in production ML
-systems the feature store *is* the interface. HTTP carries control queries
-only. See [ADR 0001](docs/adr/0001-service-architecture.md).
+Bulk data never crosses the network. Serialising a million rows of OHLCV as JSON
+to train a model costs minutes for no benefit — in production ML systems the
+feature store *is* the interface between the data and modelling layers. HTTP
+carries control-plane queries only.
+
+Services share exactly one dependency: `packages/contracts`. The parquet
+partition layout is published there as a contract with a schema-freeze test, so a
+column or partition change breaks the build rather than integration.
+
+See [ADR 0001](docs/adr/0001-service-architecture.md).
 
 ---
 
-## Data — free, legal, no permission
+## Data sources
+
+All sources are free, require no account or API key, and permit personal
+non-commercial use.
 
 | Tier | Source | Role |
 |---|---|---|
-| 1 | NSE bhavcopy (official) | EOD, corporate actions, symbol master, liquidity screen |
-| 2 | [OpenChart](https://github.com/marketcalls/openchart) — NSE's public charting API (MIT, no auth) | Intraday 1m/5m/15m bars |
-| 3 | Deterministic synthetic generator | Offline tests and CI, with zero network |
+| 1 | NSE bhavcopy (official published file) | End-of-day bars, corporate actions, symbol master, liquidity screen |
+| 2 | [OpenChart](https://github.com/marketcalls/openchart) — NSE public charting API (MIT, no auth) | Intraday 1m / 5m / 15m bars |
+| 3 | Deterministic synthetic generator | Offline tests and CI, with no network access |
 
-NSE's site terms permit personal, non-commercial use, which a portfolio project
-satisfies. **No NSE data enters this repository** — not the lake, not test
-fixtures. The suite runs on generated bars precisely so the redistribution
-question never arises. `yfinance` was deleted rather than gated; see
-[ADR 0002](docs/adr/0002-data-sources.md).
+**No NSE data is committed to this repository** — not the lake, and not test
+fixtures. The test suite runs entirely on generated bars so that the
+redistribution question does not arise. `yfinance` was removed rather than
+feature-flagged; see [ADR 0002](docs/adr/0002-data-sources.md).
 
-**The constraint that shapes everything:** the public endpoint serves a rolling
-**60–90 day** window. There is no deep backfill at any price we are paying, so
-the lake is **append-only** — the worker appends each session and history grows
-past what any single call can return.
+> **Architectural constraint.** The public endpoint serves a rolling **60–90 day**
+> window and no deeper backfill is available without a commercial licence. The
+> lake is therefore **append-only**: the worker appends each session, and stored
+> history grows beyond what any single request can return.
 
 ---
 
-## The model
+## Modelling pipeline
 
-| Layer | What |
+| Layer | Component | Description |
+|---|---|---|
+| **L0** | Panel construction | Pooled cross-sectional panel; per-timestamp percentile ranks and sector-neutral z-scores |
+| **L2** | Triple-barrier labelling | Volatility-scaled profit-take, stop-loss and time barriers; evaluated against bar high/low; confined to the session |
+| **L3** | Sample weighting | Average uniqueness, correcting for overlapping labels |
+| **L4** | Feature engineering | Technical indicators plus OHLCV-derived microstructure estimators |
+| **L5** | Base learners | Gradient boosting, random forest, and an ElasticNet baseline; purged out-of-fold predictions |
+| **L7** | Meta-labelling | A second model answering "given the primary predicted long, will *this* call be correct?" |
+| **L8** | Calibration | Platt / isotonic scaling fitted on held-out scores |
+| **L9** | Position sizing | Half-Kelly, volatility-scaled, capped at 10% |
+
+Three quantities are kept strictly separate and are validated as such by the
+`Prediction` contract:
+
+- **`p_up`** — direction, `P(upper barrier touched first)`
+- **`certainty`** — `max(p, 1−p)`; conviction irrespective of side, used for gating
+- **`meta_probability`** — `P(this call is correct)`; the correct Kelly input
+
+---
+
+## Validation
+
+| Method | Question answered |
 |---|---|
-| **L0** | Pooled cross-sectional panel — per-timestamp percentile ranks, sector-neutral z-scores |
-| **L2** | Triple-barrier labels: vol-scaled, checked on high/low, confined to the session |
-| **L3** | Average-uniqueness sample weights |
-| **L4** | Technical features + microstructure estimators |
-| **L5** | Boosted trees, random forest, ElasticNet baseline — purged OOF |
-| **L7** | Meta-labelling: "given the primary said long, will *this* long be right?" |
-| **L8** | Platt / isotonic calibration on held-out scores |
-| **L9** | Half-Kelly × volatility scaling × 10% cap |
+| Purged K-fold, split by timestamp | Did the model train on future information? |
+| Combinatorial purged CV (CPCV) | How stable is the result across backtest paths? |
+| Deflated Sharpe ratio | How much of this is selection luck across configurations tried? |
+| Permutation test (shuffled within folds) | Could this result arise by chance? |
 
-Validation is purged K-fold **split by timestamp**, plus CPCV for a
-*distribution* of Sharpes, a deflated Sharpe for multiple testing, and a
-permutation test with labels shuffled within folds.
-
-### What v1 got wrong
-
-The rewrite exists because of five defects that produced plausible-looking
-numbers rather than crashes:
-
-1. **Labels were silently wrong.** `(Future_Return > 0).astype(int)` turned the
-   unknowable last rows into label `0`, and the `dropna` meant to remove them
-   was a verified no-op. Those rows trained the model, entered the
-   out-of-sample metric, and were the exact rows the live plan read.
-2. **Short calls were unreachable.** `Confidence` held P(up) while the gate was
-   `< 0.55`, so a bearish call could never pass. The system was long-only by
-   accident.
-3. **VWAP never reset**, though its own comment said it did.
-4. **One model per ticker on ~1,200 rows**, which forecloses a sub-1% effect
-   before any modelling happens.
-5. **The backtest checked stops on the close**, never the bar's high or low.
-
-Each is now a test, and most are unrepresentable in the type system.
+Folds split on **timestamp**, so every symbol on a given bar is assigned to the
+same fold — splitting by row would leak information across the cross-section.
+Training rows whose labels resolve inside a test window are purged, and an
+embargo removes rows immediately following it.
 
 ---
 
-## Honest limitations
+## Getting started
 
-- **History is short.** 60–90 days spans one or two regimes. The model cannot
-  learn regime dependence until the lake has accumulated for months.
-- **Microstructure is estimated, not measured.** Real order-flow imbalance
-  needs the tape; real spread needs the book. These are OHLCV-derived
-  estimators, named `*_est` where the gap matters.
-- **The NSE holiday calendar is maintained by hand.** An unverified year
-  *raises* rather than assuming the market was open. Add each year from NSE's
-  circular — several holidays follow lunar calendars and cannot be guessed.
-- **No execution, no broker, no live data.**
+**Requirements:** Python 3.11+, Node 20+
 
----
-
-## Development
+**1. Install**
 
 ```bash
-make test
+make install
 ```
+
+**2. Start the API**
 
 ```bash
-make lint && make imports
+.venv/bin/python scripts/dev_gateway.py
 ```
 
-`make imports` asserts every service imports standalone — a shared virtualenv
-makes every service's dependency list look correct right up until the container
-starts.
+**3. Start the interface**
+
+```bash
+npm run dev --prefix web
+```
+
+The terminal is served at `http://localhost:3000`; the API at
+`http://localhost:8010`.
+
+The development entry point trains on synthetic data — clearly flagged in the
+interface — so that a fresh clone reaches a working screen rather than an empty
+one. Synthetic-trained models are marked `trained_on_synthetic` and can never be
+promoted to serve.
+
+### Docker
+
+```bash
+docker compose -f infra/docker-compose.yml up --build
+```
+
+Only the web service publishes a port. The lake is bind-mounted, and
+`intelligence` and `gateway` mount it read-only so the single-writer boundary is
+enforced by the mount rather than by convention.
 
 ---
 
-## Licence & disclaimer
+## Project layout
 
-MIT. For research and education only — not investment advice. Signals are
-generated from public NSE data for personal, non-commercial use.
+```
+packages/
+  contracts/          Shared types; the only cross-service dependency
+services/
+  market-data/        Ingest, quality gate, corporate actions, lake writes
+  intelligence/       Panel, labelling, features, models, validation
+  gateway/            Public API, composition, narrative templating
+  worker/             Scheduled append, retraining, drift detection
+web/                  Nuxt 4 · Vue 3 · Three.js
+infra/                Docker Compose
+docs/adr/             Architecture decision records
+scripts/              Development entry points
+```
+
+---
+
+## Testing
+
+```bash
+make test         # full suite, excluding network-marked tests
+make lint         # ruff check and format verification
+make imports      # assert every service imports standalone
+```
+
+`make imports` is deliberate: a shared virtual environment makes every service's
+dependency list appear correct until a container starts and raises
+`ModuleNotFoundError` at import time. CI runs it as an explicit step.
+
+The suite emphasises properties that fail silently rather than loudly:
+
+- **Leakage tests** assert that computing a feature over a longer series does not
+  change values already computed on a shorter prefix.
+- **Adversarial fixtures** provide one hand-built failing case per quality rule.
+- **Contract tests** verify that invalid states cannot be constructed.
+
+---
+
+## Known limitations
+
+These are stated plainly because they materially affect how results should be
+read.
+
+- **History is short.** A 60–90 day window spans one or two market regimes. The
+  model cannot learn regime dependence until the lake has accumulated over a
+  longer period.
+- **Microstructure is estimated, not measured.** Genuine order-flow imbalance
+  requires the trade-and-quote tape, and a genuine spread requires the order
+  book. The features here are OHLCV-derived estimators and are named `*_est`
+  where the distinction matters.
+- **The NSE holiday calendar is maintained manually.** An unverified year raises
+  rather than assuming the market was open. Each year must be added from NSE's
+  published circular; several holidays follow lunar calendars and cannot be
+  extrapolated.
+- **No execution modelling.** There is no broker integration, no queue-position
+  model, and no live data path.
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+**Disclaimer.** This project is provided for research and educational purposes
+only. It does not constitute investment advice, and no representation is made
+regarding the profitability of any signal it produces. Signals are derived from
+publicly available NSE data for personal, non-commercial use.
