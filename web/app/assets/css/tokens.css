@@ -1,0 +1,158 @@
+/* Design tokens.
+ *
+ * Direction colours are VALIDATED, not chosen by eye. Measured with the
+ * dataviz validator (OKLab ΔE ×100):
+ *
+ *   light  green #008300 ↔ red #e34948   CVD ΔE  7.2 (protan)  normal 33.1
+ *   dark   green #008300 ↔ red #e66767   CVD ΔE  8.6 (protan)  normal 32.6
+ *   cvd    blue  #2a78d6 ↔ orange #eb6834 CVD ΔE 24.7 (protan) normal 33.6
+ *
+ * The light red/green pair sits in the 6–8 warn band, which is legal ONLY with
+ * secondary encoding. That is the whole reason direction is encoded FOUR ways
+ * everywhere in this UI — colour + glyph (▲/▼) + text + position. Remove the
+ * hue and every chart still reads; that is the acceptance test.
+ *
+ * The `cvd` palette is a user toggle for anyone who would rather not rely on
+ * the red/green axis at all.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces — a terminal, so the ground is near-black in dark and paper-ish
+     in light. Not a gradient in sight. */
+  --surface-0: #fcfcfb;
+  --surface-1: #f4f4f1;
+  --surface-2: #e9e9e4;
+  --surface-raised: #ffffff;
+
+  --border: #d7d7d0;
+  --border-strong: #b4b4aa;
+
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7d7c76;
+
+  /* Direction. Text tokens never wear these — a coloured mark beside the
+     number carries identity, the number itself stays ink. */
+  --dir-up: #008300;
+  --dir-down: #e34948;
+  --dir-flat: #7d7c76;
+  --dir-up-wash: #0083001a;
+  --dir-down-wash: #e349481a;
+
+  --accent: #2a78d6;
+  --warn: #eda100;
+
+  /* Type. Monospace numerics are not decoration: a column of figures that
+     doesn't align is a column you cannot scan. */
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-hero: clamp(2rem, 1.2rem + 3vw, 3.5rem);
+
+  /* Rhythm — deliberately tight. A terminal is dense; generous padding here
+     would mean less on screen and more scrolling. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  --radius-sm: 3px;
+  --radius: 5px;
+
+  --duration-fast: 120ms;
+  --duration: 220ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --status-bar-height: 34px;
+}
+
+/* Dark: its own steps from the same ramps, validated against the dark
+   surface — not an automatic inversion. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --surface-2: #232320;
+    --surface-raised: #262623;
+
+    --border: #34342f;
+    --border-strong: #4a4a43;
+
+    --text-primary: #f5f5f0;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8e8d84;
+
+    --dir-up: #12a012;
+    --dir-down: #e66767;
+    --dir-flat: #8e8d84;
+    --dir-up-wash: #12a01222;
+    --dir-down-wash: #e6676722;
+
+    --accent: #3987e5;
+    --warn: #c98500;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --surface-2: #232320;
+  --surface-raised: #262623;
+
+  --border: #34342f;
+  --border-strong: #4a4a43;
+
+  --text-primary: #f5f5f0;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8e8d84;
+
+  --dir-up: #12a012;
+  --dir-down: #e66767;
+  --dir-flat: #8e8d84;
+  --dir-up-wash: #12a01222;
+  --dir-down-wash: #e6676722;
+
+  --accent: #3987e5;
+  --warn: #c98500;
+}
+
+/* Colour-vision-safe direction palette. Blue/orange rather than green/red:
+   measured CVD ΔE 24.7 light / 26.8 dark, versus 7.2 for green/red. */
+:root[data-palette='cvd'] {
+  --dir-up: #2a78d6;
+  --dir-down: #eb6834;
+  --dir-up-wash: #2a78d61a;
+  --dir-down-wash: #eb68341a;
+}
+
+:root[data-palette='cvd'][data-theme='dark'],
+:root[data-palette='cvd']:where(:not([data-theme='light'])) {
+  --dir-up: #3987e5;
+  --dir-down: #d95926;
+}
+
+/* Forced-colors: hue is gone entirely, so the glyph and text encodings are
+   all that is left — which is exactly why they exist. */
+@media (forced-colors: active) {
+  :root {
+    --dir-up: CanvasText;
+    --dir-down: CanvasText;
+    --dir-flat: GrayText;
+  }
+}

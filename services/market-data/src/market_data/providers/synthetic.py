@@ -76,6 +76,7 @@ class SyntheticProvider(MarketDataProvider):
     def __init__(self, seed: int = 0, calendar: NSECalendar | None = None) -> None:
         self.seed = seed
         self.calendar = calendar or NSECalendar()
+        self._path_cache: dict[str, dict[dt.date, float]] = {}
 
     def max_history_days(self, interval: Interval) -> int:
         """Unbounded — it is generated. Kept large rather than infinite so that
@@ -99,22 +100,70 @@ class SyntheticProvider(MarketDataProvider):
         return str(rng.choice(list(_REGIME_DRIFT)))
 
     def _day_open(self, symbol: str, day: dt.date) -> float:
-        """Opening price for a day, built by compounding regime drift from a
-        fixed epoch so that consecutive days join up continuously."""
+        """Opening price for a day.
+
+        Built by **accumulating** daily log-returns from a fixed epoch, so
+        consecutive days join up into one continuous path.
+
+        The obvious shortcut — draw an independent shock per day from a
+        day-seeded RNG — is wrong, and wrong in a way that only shows up when
+        you plot it: every session opens at an unrelated level, so the chart is
+        a scatter of disconnected clusters and every overnight "gap" is larger
+        than any real corporate action. It also poisons any feature that spans a
+        session boundary.
+        """
+        return self._price_path(symbol)[day]
+
+    @staticmethod
+    def _epoch() -> dt.date:
+        return dt.date(2024, 1, 1)
+
+    def _price_path(self, symbol: str) -> dict[dt.date, float]:
+        """Cumulative daily open prices, memoised per symbol.
+
+        A dict rather than a closed form because a random walk has no closed
+        form — each day genuinely depends on every day before it. Roughly 1,000
+        calendar days is a millisecond, and it is computed once per symbol.
+        """
+        cached = self._path_cache.get(symbol)
+        if cached is not None:
+            return cached
+
         base = self._base_price(symbol)
-        annual_vol = self._annual_vol(symbol)
-        epoch = dt.date(2024, 1, 1)
+        daily_vol = self._annual_vol(symbol) / math.sqrt(_TRADING_DAYS)
 
-        days_elapsed = max(0, (day - epoch).days)
-        rng = np.random.default_rng(_stable_seed("path", symbol, day, self.seed))
+        epoch = self._epoch()
+        horizon = 1200
+        rng = np.random.default_rng(_stable_seed("path", symbol, self.seed))
+        shocks = rng.normal(0.0, daily_vol, horizon)
 
-        drift = _REGIME_DRIFT[self._regime_for(symbol, day)] / _TRADING_DAYS
-        daily_vol = annual_vol / math.sqrt(_TRADING_DAYS)
+        path: dict[dt.date, float] = {}
+        log_price = math.log(base)
 
-        # Deterministic slow component + a day-specific shock.
-        trend = drift * (days_elapsed % (_REGIME_LENGTH_DAYS * 6))
-        shock = float(rng.normal(0.0, daily_vol)) * math.sqrt(days_elapsed % 30 + 1)
-        return float(base * math.exp(trend + shock))
+        for offset in range(horizon):
+            day = epoch + dt.timedelta(days=offset)
+            drift = _REGIME_DRIFT[self._regime_for(symbol, day)] / _TRADING_DAYS
+            log_price += drift + float(shocks[offset])
+            path[day] = math.exp(log_price)
+
+        self._path_cache[symbol] = path
+        return path
+
+    def _next_trading_day(self, day: dt.date) -> dt.date:
+        """The next session, so the bridge has an endpoint to aim at."""
+        cursor = day + dt.timedelta(days=1)
+        for _ in range(10):
+            try:
+                if self.calendar.is_trading_day(cursor):
+                    return cursor
+            except Exception:
+                # Past the verified calendar horizon: fall back to the next
+                # weekday rather than failing generation outright. Generated
+                # bars are not claiming to know NSE's future holidays.
+                if cursor.weekday() < 5:
+                    return cursor
+            cursor += dt.timedelta(days=1)
+        return day + dt.timedelta(days=1)
 
     # -- fetch ----------------------------------------------------------
 
@@ -138,18 +187,38 @@ class SyntheticProvider(MarketDataProvider):
         rng = np.random.default_rng(_stable_seed("session", symbol, day, interval.value, self.seed))
         annual_vol = self._annual_vol(symbol)
         per_bar_vol = annual_vol / math.sqrt(_TRADING_DAYS * max(n_bars, 1))
-        drift_per_bar = _REGIME_DRIFT[self._regime_for(symbol, day)] / (_TRADING_DAYS * n_bars)
 
         base_volume = float(rng.uniform(20_000, 400_000)) / max(n_bars, 1)
-        price = self._day_open(symbol, day)
+        session_open = self._day_open(symbol, day)
         out: list[OHLCVBar] = []
+
+        # Brownian bridge from this session's open to the next session's open.
+        #
+        # Without it the intraday walk and the daily path are two independent
+        # processes: whatever the session accumulated is discarded at the next
+        # open, and the overnight "gap" is the difference between two unrelated
+        # random walks. Pinning the endpoint keeps the intraday wiggle while
+        # making the session close land where the next open expects it.
+        next_open = self._day_open(symbol, self._next_trading_day(day))
+        target_drift = math.log(next_open / session_open) if session_open > 0 else 0.0
+
+        increments = np.array(
+            [
+                float(rng.normal(0.0, per_bar_vol * _intraday_shape(i / max(n_bars, 1))))
+                for i in range(n_bars)
+            ]
+        )
+        # Recentre so the increments sum exactly to the required drift.
+        increments = increments - increments.mean() + target_drift / n_bars
+
+        price = session_open
 
         for i in range(n_bars):
             shape = _intraday_shape(i / n_bars if n_bars > 1 else 0.5)
             bar_vol = per_bar_vol * shape
 
             open_ = price
-            close = open_ * math.exp(drift_per_bar + float(rng.normal(0.0, bar_vol)))
+            close = open_ * math.exp(float(increments[i]))
 
             # Wicks extend beyond the body by a positive amount, so geometry
             # holds by construction rather than by a later repair step.

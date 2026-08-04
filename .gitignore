@@ -43,3 +43,7 @@ data/
 data_cache/
 *.pkl
 backtest_*.png
+
+# Nuxt build output
+web/.nuxt/
+web/.output/

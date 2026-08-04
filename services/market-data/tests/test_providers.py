@@ -204,3 +204,38 @@ def test_daily_interval_yields_one_bar_per_session(provider: SyntheticProvider) 
     bars = provider.fetch_bars("LT", Interval.D1, START, END)
     assert len(bars) == 5
     assert all(b.timestamp.time() == dt.time(9, 15) for b in bars)
+
+
+def test_price_path_is_continuous_across_sessions() -> None:
+    """Each session must open near the previous close.
+
+    Drawing an independent shock per day is the obvious shortcut and it is
+    wrong in a way only a chart reveals: every session opens at an unrelated
+    level, so the plot is disconnected clusters and every overnight gap dwarfs
+    any real corporate action.
+    """
+    provider = SyntheticProvider(seed=13)
+    bars = provider.fetch_bars(
+        "RELIANCE",
+        Interval.M15,
+        dt.datetime(2025, 3, 3, 0, 0, tzinfo=IST),
+        dt.datetime(2025, 4, 30, 23, 59, tzinfo=IST),
+    )
+
+    by_day: dict[dt.date, list] = {}
+    for bar in bars:
+        by_day.setdefault(bar.timestamp.date(), []).append(bar)
+
+    days = sorted(by_day)
+    assert len(days) > 20
+
+    gaps = []
+    for previous, current in zip(days, days[1:], strict=False):
+        prev_close = by_day[previous][-1].close
+        next_open = by_day[current][0].open
+        gaps.append(abs(next_open / prev_close - 1.0))
+
+    # Real overnight gaps are small. Anything above a few percent on every day
+    # means the path is not accumulating.
+    assert max(gaps) < 0.06, f"largest overnight gap {max(gaps):.1%} — path is discontinuous"
+    assert sum(gaps) / len(gaps) < 0.02
