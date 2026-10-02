@@ -32,6 +32,7 @@ published whichever way it goes.
 
 ## Contents
 
+- [Relationship to indicant](#relationship-to-indicant)
 - [Design principles](#design-principles)
 - [Architecture](#architecture)
 - [Data sources](#data-sources)
@@ -42,6 +43,21 @@ published whichever way it goes.
 - [Testing](#testing)
 - [Known limitations](#known-limitations)
 - [License](#license)
+
+---
+
+## Relationship to indicant
+
+[**indicant**](https://github.com/manav363/indicant) is the end-of-day sibling of this project. The two share a design philosophy (publish the significance test, refuse rather than guess) and a four-service layout, but they cover different problems:
+
+| | This repo | [indicant](https://github.com/manav363/indicant) |
+|---|---|---|
+| Question | Which way will a stock move *within the session*? | How likely is a stock to be higher over the coming months? |
+| Data | Intraday 1m / 5m / 15m bars from OpenChart, plus daily bhavcopy | Daily NSE bhavcopy archive |
+| Distinct work | Session-confined triple-barrier labels, meta-labelling, volatility-scaled sizing | Point-in-time universe, six-tier quality gate, delisted-name retention |
+| Interface | Nuxt 4, Vue 3, Three.js | React 18, TypeScript |
+
+If you only read one, read indicant: it is the more complete account of the data and validation work.
 
 ---
 
@@ -256,6 +272,12 @@ read.
   extrapolated.
 - **No execution modelling.** There is no broker integration, no queue-position
   model, and no live data path.
+
+---
+
+## How this was built
+
+This project was built with AI coding assistance (Claude Code). The reasoning behind the design is recorded in the [architecture decision records](docs/adr/), and the behaviour described here is covered by the test suite, which CI runs on every push and which also guards the published test count.
 
 ---
 
